@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CMS Admin Panel</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Public CMS Dashboard</h1>
+            <button class="secondary" onclick="toggleDocs()">API Dokumentation</button>
+        </header>
+
+        <!-- API Dokumentation Modal -->
+        <div id="docsModal" class="modal">
+            <div class="modal-content">
+                <h2>API Dokumentation</h2>
+                <pre id="docsContent" style="background:#f8f9fa; padding:10px; border-radius:4px; font-size:12px; overflow-x:auto;"></pre>
+                <button onclick="toggleDocs()" class="secondary">Stäng</button>
+            </div>
+        </div>
+
+        <!-- Redigera Sida Modal -->
+        <div id="editModal" class="modal">
+            <div class="modal-content">
+                <h2>Redigera Sida</h2>
+                <form id="editPageForm">
+                    <input type="hidden" id="editId">
+                    <div class="form-group">
+                        <label>Titel</label>
+                        <input type="text" id="editTitle" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Innehåll</label>
+                        <textarea id="editContent" required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select id="editStatus">
+                            <option value="published">Publicerad</option>
+                            <option value="draft">Utkast</option>
+                        </select>
+                    </div>
+                    <button type="submit">Spara Ändringar</button>
+                    <button type="button" class="secondary" onclick="closeEditModal()">Avbryt</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Skapa Ny Sida -->
+        <div class="card">
+            <h2>Skapa ny sida</h2>
+            <form id="createPageForm">
+                <div class="form-group">
+                    <label for="title">Sidans Rubrik</label>
+                    <input type="text" id="title" placeholder="Fyll i titel..." required>
+                </div>
+                <div class="form-group">
+                    <label for="content">Innehåll</label>
+                    <textarea id="content" placeholder="Skriv din text här..." required></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="status">Status</label>
+                    <select id="status">
+                        <option value="published">Publicerad</option>
+                        <option value="draft">Utkast</option>
+                    </select>
+                </div>
+                <button type="submit">Skapa Sida</button>
+            </form>
+        </div>
+
+        <!-- Filtrering & Sökning -->
+        <div class="card">
+            <h2>Hämta & Filtrera Sidor</h2>
+            <div class="controls">
+                <select id="filterStatus" onchange="fetchPages()" style="width: 200px;">
+                    <option value="">Alla statusar</option>
+                    <option value="published">Publicerad</option>
+                    <option value="draft">Utkast</option>
+                </select>
+                <input type="text" id="searchInput" placeholder="Sök på titel eller innehåll..." style="width: 250px;">
+                <button onclick="fetchPages()">Sök / Ladda</button>
+            </div>
+            
+            <div id="pagesList"></div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <title>Min Publik Sida</title>
+    <style>
+        body { font-family: sans-serif; background: #f0f2f5; padding: 40px; }
+        .article-card { background: white; max-width: 600px; margin: 0 auto; padding: 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .article-card img { max-width: 100%; height: auto; border-radius: 4px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <!-- Rutan där innehållet från API:et visas -->
+    <div id="article" class="article-card">
+        <p>Laddar innehåll...</p>
+    </div>
+
+    <script>
+        // Hämta t.ex. sida 1 från API:et
+        async function loadPage(pageId) {
+            try {
+                const response = await fetch(`api.php?id=${pageId}`);
+                const page = await response.json();
+
+                if (!response.ok) {
+                    document.getElementById('article').innerHTML = `<h2>Sidan hittades inte</h2>`;
+                    return;
+                }
+
+                // Bygg ihop bilderna till HTML
+                let imagesHtml = '';
+                if (page.images && page.images.length > 0) {
+                    page.images.forEach(img => {
+                        imagesHtml += `<img src="${img.img_path}" alt="Artikelbild">`;
+                    });
+                }
+
+                // Skriv ut datan i rutan
+                document.getElementById('article').innerHTML = `
+                    <h1>${page.title}</h1>
+                    <p>${page.content}</p>
+                    <div class="gallery">${imagesHtml}</div>
+                `;
+            } catch (err) {
+                document.getElementById('article').innerHTML = `<p>Kunde inte ladda sidan.</p>`;
+            }
+        }
+
+        // Kör funktionen för sida ID 1 när besökaren öppnar sidan
+        loadPage(3);
+    </script>
+</body>
+</html>
