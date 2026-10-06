@@ -22,22 +22,26 @@
             </div>
         </div>
 
-        <!-- Redigera Sida Modal -->
+        <!-- Redigera / Lägg till Översättning Modal -->
         <div id="editModal" class="modal">
             <div class="modal-content">
-                <h2>Redigera Sida</h2>
+                <h2>Redigera / Översätt Sida</h2>
                 <form id="editPageForm">
                     <input type="hidden" id="editId">
                     <div class="form-group">
-                        <label>Titel</label>
+                        <label for="editSprak">Språk för innehållet</label>
+                        <select id="editSprak" required></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="editTitle">Titel</label>
                         <input type="text" id="editTitle" required>
                     </div>
                     <div class="form-group">
-                        <label>Innehåll</label>
+                        <label for="editContent">Innehåll</label>
                         <textarea id="editContent" required></textarea>
                     </div>
                     <div class="form-group">
-                        <label>Status</label>
+                        <label for="editStatus">Status</label>
                         <select id="editStatus">
                             <option value="published">Publicerad</option>
                             <option value="draft">Utkast</option>
@@ -53,6 +57,12 @@
         <div class="card">
             <h2>Skapa ny sida</h2>
             <form id="createPageForm">
+                <div class="form-group">
+                    <label for="sprak">Språk</label>
+                    <select id="sprak" required>
+                        <option value="" disabled selected>Välj språk...</option>
+                    </select>
+                </div>
                 <div class="form-group">
                     <label for="title">Sidans Rubrik</label>
                     <input type="text" id="title" placeholder="Fyll i titel..." required>
@@ -76,13 +86,33 @@
         <div class="card">
             <h2>Hämta & Filtrera Sidor</h2>
             <div class="controls">
-                <select id="filterStatus" onchange="fetchPages()" style="width: 200px;">
+                <select id="filterStatus" onchange="fetchPages()">
                     <option value="">Alla statusar</option>
                     <option value="published">Publicerad</option>
                     <option value="draft">Utkast</option>
                 </select>
-                <input type="text" id="searchInput" placeholder="Sök på titel eller innehåll..." style="width: 250px;">
-                <button onclick="fetchPages()">Sök / Ladda</button>
+                <select id="filterSprak" onchange="fetchPages()">
+                    <option value="">Alla språk</option>
+                </select>
+                <input type="number" id="filterYear" placeholder="År (t.ex. 2026)" onchange="fetchPages()" style="width: 110px;">
+                <select id="filterMonth" onchange="fetchPages()">
+                    <option value="">Månad...</option>
+                    <option value="1">Januari</option>
+                    <option value="2">Februari</option>
+                    <option value="3">Mars</option>
+                    <option value="4">April</option>
+                    <option value="5">Maj</option>
+                    <option value="6">Juni</option>
+                    <option value="7">Juli</option>
+                    <option value="8">Augusti</option>
+                    <option value="9">September</option>
+                    <option value="10">Oktober</option>
+                    <option value="11">November</option>
+                    <option value="12">December</option>
+                </select>
+                <input type="number" id="filterWeek" placeholder="Vecka (1-52)" onchange="fetchPages()" style="width: 110px;">
+                <input type="text" id="searchInput" placeholder="Sök..." style="width: 160px;">
+                <button onclick="fetchPages()">Filtrera</button>
             </div>
             
             <div id="pagesList"></div>

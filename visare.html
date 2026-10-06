@@ -2,53 +2,198 @@
 <html lang="sv">
 <head>
     <meta charset="UTF-8">
-    <title>Min Publik Sida</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Publik Klient - CMS</title>
     <style>
-        body { font-family: sans-serif; background: #f0f2f5; padding: 40px; }
-        .article-card { background: white; max-width: 600px; margin: 0 auto; padding: 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .article-card img { max-width: 100%; height: auto; border-radius: 4px; margin-top: 10px; }
+        * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+        body { background-color: #f0f2f5; color: #333; margin: 0; padding: 30px; }
+        .container { max-width: 850px; margin: 0 auto; }
+        h1 { margin-bottom: 20px; font-size: 24px; color: #111; }
+        
+        /* Listvy för alla sidor på rad */
+        .page-list { display: flex; flex-direction: column; gap: 12px; }
+        .page-card { 
+            background: white; 
+            padding: 18px 24px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05); 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            cursor: pointer; 
+            transition: transform 0.1s, box-shadow 0.1s; 
+        }
+        .page-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .page-info h3 { margin: 0 0 6px 0; font-size: 18px; color: #0066cc; }
+        .page-info p { margin: 0; font-size: 13px; color: #666; }
+        .badge { background: #e9ecef; color: #495057; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-right: 4px; }
+        
+        .open-btn { background: #0066cc; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; shrink: 0; }
+        .open-btn:hover { background: #0052a3; }
+
+        /* Separat modal/fönster för detaljvisning */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.55); justify-content: center; align-items: center; padding: 20px; z-index: 1000; }
+        .modal.active { display: flex; }
+        .modal-content { 
+            background: white; 
+            width: 100%; 
+            max-width: 700px; 
+            max-height: 85vh; 
+            overflow-y: auto; 
+            padding: 30px; 
+            border-radius: 12px; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2); 
+            position: relative; 
+        }
+        
+        .close-btn { position: absolute; top: 15px; right: 20px; background: transparent; border: none; font-size: 26px; cursor: pointer; color: #888; }
+        .close-btn:hover { color: #000; }
+
+        .lang-picker { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 12px; align-items: center; }
+        .lang-btn { background: #f0f0f0; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; }
+        .lang-btn.active { background: #28a745; color: white; }
+        
+        .gallery { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 25px; }
+        .gallery img { max-width: 100%; height: auto; max-height: 220px; border-radius: 6px; object-fit: cover; }
     </style>
 </head>
 <body>
 
-    <!-- Rutan där innehållet från API:et visas -->
-    <div id="article" class="article-card">
-        <p>Laddar innehåll...</p>
+    <div class="container">
+        <h1>Publicerade artiklar & sidor</h1>
+        
+        <!-- Listan där alla sidor läggs på rad -->
+        <div id="pageList" class="page-list">
+            <p>Laddar sidor...</p>
+        </div>
+    </div>
+
+    <!-- Separat Fönster / Modal för att visa vald sida -->
+    <div id="pageModal" class="modal" onclick="closeModalOnOutsideClick(event)">
+        <div class="modal-content">
+            <button class="close-btn" onclick="closeModal()">&times;</button>
+            
+            <div class="lang-picker">
+                <strong style="font-size: 13px;">Språk:</strong>
+                <div id="modalLangButtons"></div>
+            </div>
+
+            <div id="modalArticle">
+                <p>Laddar innehåll...</p>
+            </div>
+        </div>
     </div>
 
     <script>
-        // Hämta t.ex. sida 1 från API:et
-        async function loadPage(pageId) {
-            try {
-                const response = await fetch(`api.php?id=${pageId}`);
-                const page = await response.json();
+        // LANSERING: Ändra till din subdomän-URL vid lansering (t.ex. 'https://api.mindoman.se/api.php')
+        const API_URL = 'api.php';
 
-                if (!response.ok) {
-                    document.getElementById('article').innerHTML = `<h2>Sidan hittades inte</h2>`;
+        document.addEventListener('DOMContentLoaded', fetchPublishedPages);
+
+        // 1. Hämtar alla publicerade sidor och listar dem i översikten
+        async function fetchPublishedPages() {
+            try {
+                const response = await fetch(`${API_URL}?status=published`);
+                const pages = await response.json();
+
+                const listContainer = document.getElementById('pageList');
+                listContainer.innerHTML = '';
+
+                if (!Array.isArray(pages) || pages.length === 0) {
+                    listContainer.innerHTML = '<p>Det finns inga publicerade sidor just nu.</p>';
                     return;
                 }
 
-                // Bygg ihop bilderna till HTML
-                let imagesHtml = '';
-                if (page.images && page.images.length > 0) {
-                    page.images.forEach(img => {
-                        imagesHtml += `<img src="${img.img_path}" alt="Artikelbild">`;
-                    });
-                }
+                // Bygg en rad för varje sida
+                pages.forEach(p => {
+                    let langsHtml = p.available_languages && p.available_languages.length > 0
+                        ? p.available_languages.map(l => `<span class="badge">${escapeHtml(l.namn)}</span>`).join('')
+                        : '';
 
-                // Skriv ut datan i rutan
-                document.getElementById('article').innerHTML = `
-                    <h1>${page.title}</h1>
-                    <p>${page.content}</p>
-                    <div class="gallery">${imagesHtml}</div>
-                `;
+                    listContainer.innerHTML += `
+                        <div class="page-card" onclick="openPageModal(${p.id})">
+                            <div class="page-info">
+                                <h3>${escapeHtml(p.title)}</h3>
+                                <p>ID: ${p.id} &nbsp;|&nbsp; Tillgängliga språk: ${langsHtml}</p>
+                            </div>
+                            <button class="open-btn" onclick="event.stopPropagation(); openPageModal(${p.id})">Läs artikel</button>
+                        </div>
+                    `;
+                });
+
             } catch (err) {
-                document.getElementById('article').innerHTML = `<p>Kunde inte ladda sidan.</p>`;
+                console.error("Fel vid hämtning av sidor:", err);
+                document.getElementById('pageList').innerHTML = '<p>Kunde inte ansluta till API:et.</p>';
             }
         }
 
-        // Kör funktionen för sida ID 1 när besökaren öppnar sidan
-        loadPage(3);
+        // 2. Öppnar fönstret (modalen) och hämtar innehållet för vald sida
+        async function openPageModal(pageId, sprakId = null) {
+            const modal = document.getElementById('pageModal');
+            modal.classList.add('active');
+
+            let url = `${API_URL}?id=${pageId}`;
+            if (sprakId) url += `&sprak_id=${sprakId}`;
+
+            try {
+                const response = await fetch(url);
+                const page = await response.json();
+
+                if (!response.ok) {
+                    document.getElementById('modalArticle').innerHTML = `<h2>Sidan hittades inte</h2>`;
+                    return;
+                }
+
+                // Generera språknappar inuti fönstret
+                const langContainer = document.getElementById('modalLangButtons');
+                langContainer.innerHTML = '';
+
+                if (page.translations && page.translations.length > 0) {
+                    page.translations.forEach(t => {
+                        const activeClass = (t.sprak_id == page.sprak_id) ? 'active' : '';
+                        langContainer.innerHTML += `
+                            <button class="lang-btn ${activeClass}" onclick="openPageModal(${page.id}, ${t.sprak_id})">
+                                ${escapeHtml(t.sprak_namn)}
+                            </button>
+                        `;
+                    });
+                }
+
+                // Bildgalleri
+                let imagesHtml = '';
+                if (page.images && page.images.length > 0) {
+                    page.images.forEach(img => {
+                        imagesHtml += `<img src="${img.img_path}" alt="Bild">`;
+                    });
+                }
+
+                // Rendera titel, brödtext och bilder i fönstret
+                document.getElementById('modalArticle').innerHTML = `
+                    <h1 style="margin-top:0; font-size: 26px;">${escapeHtml(page.title)}</h1>
+                    <p style="line-height:1.6; white-space: pre-line; font-size: 15px;">${escapeHtml(page.content)}</p>
+                    <div class="gallery">${imagesHtml}</div>
+                `;
+
+            } catch (err) {
+                console.error("Kunde inte ladda fönstret:", err);
+                document.getElementById('modalArticle').innerHTML = `<p>Kunde inte ladda innehåll.</p>`;
+            }
+        }
+
+        // 3. Stänga fönstret
+        function closeModal() {
+            document.getElementById('pageModal').classList.remove('active');
+        }
+
+        function closeModalOnOutsideClick(e) {
+            if (e.target.id === 'pageModal') {
+                closeModal();
+            }
+        }
+
+        function escapeHtml(str) {
+            return str ? str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;") : '';
+        }
     </script>
 </body>
 </html>

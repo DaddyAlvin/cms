@@ -1,5 +1,7 @@
 <?php
 header("Content-Type: application/json; charset=UTF-8");
+
+// LANSERING: Ändra '*' till din domän för subdomänen när du lanserar, t.ex. "https://cms.mindoman.se"
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
@@ -15,18 +17,17 @@ if ($method === 'OPTIONS') {
     exit;
 }
 
-// API DOKUMENTATION (GET /api.php?action=help)
 if ($action === 'help' || ($method === 'GET' && isset($_GET['help']))) {
     echo json_encode([
         "message" => "Välkommen till Public CMS API",
         "endpoints" => [
-            "GET /api.php?action=help" => "Visa denna API-dokumentation",
-            "GET /api.php" => "Hämta alla sidor (Filtrera: ?status=published|draft & search=sökord)",
-            "GET /api.php?id={id}" => "Hämta specifik sida med tillhörande bilder",
-            "POST /api.php" => "Skapa ny sida (JSON: title, content, status)",
-            "PUT /api.php?id={id}" => "Redigera sida (JSON: title, content, status)",
-            "DELETE /api.php?id={id}" => "Ta bort sida och raderar bildfiler från hårddisken",
-            "POST /api.php?action=upload_image" => "Ladda upp bild för sida (FormData: page_id, image_file)"
+            "GET /api.php?action=languages" => "Hämta alla tillgängliga språk i databasen",
+            "GET /api.php" => "Hämta sidor (Filtrera med: status, sprak_id, year, month, week, search)",
+            "GET /api.php?id={id}&sprak_id={sprak_id}" => "Hämta specifik sida (optionellt specifik översättning)",
+            "POST /api.php" => "Skapa ny sida (JSON: title, content, status, sprak_id)",
+            "PUT /api.php?id={id}" => "Uppdatera eller lägg till språköversättning (JSON: title, content, status, sprak_id)",
+            "DELETE /api.php?id={id}" => "Ta bort sida och alla dess översättningar och bilder",
+            "POST /api.php?action=upload_image" => "Ladda upp bild för sida"
         ]
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     exit;
@@ -34,13 +35,25 @@ if ($action === 'help' || ($method === 'GET' && isset($_GET['help']))) {
 
 switch ($method) {
 
-    // HÄMTA SIDOR & BILDER
     case 'GET':
+        // Hämta aktiva språk i systemet
+        if ($action === 'languages') {
+            $result = $conn->query("SELECT id, sprak, namn FROM sprak ORDER BY id ASC");
+            $languages = $result->fetch_all(MYSQLI_ASSOC);
+            echo json_encode($languages, JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        // Hämta en specifik sida
         if ($id) {
-            $stmt = $conn->prepare("SELECT * FROM pages WHERE id = ?");
+            $requested_sprak_id = isset($_GET['sprak_id']) ? intval($_GET['sprak_id']) : null;
+            $requested_sprak_code = $_GET['sprak'] ?? null;
+
+            $stmt = $conn->prepare("SELECT id, status, created_at, updated_at FROM pages WHERE id = ?");
             $stmt->bind_param("i", $id);
             $stmt->execute();
             $page = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
 
             if (!$page) {
                 http_response_code(404);
@@ -48,65 +61,129 @@ switch ($method) {
                 exit;
             }
 
-            $imgStmt = $conn->prepare("SELECT * FROM images WHERE page_id = ?");
+            // Hämta alla översättningar som finns för sidan
+            $transStmt = $conn->prepare("SELECT pc.sprak_id, s.sprak AS sprak_kod, s.namn AS sprak_namn, pc.title, pc.content 
+                                         FROM page_content pc 
+                                         INNER JOIN sprak s ON pc.sprak_id = s.id 
+                                         WHERE pc.page_id = ?");
+            $transStmt->bind_param("i", $id);
+            $transStmt->execute();
+            $translations = $transStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $transStmt->close();
+
+            $page['translations'] = $translations;
+
+            // Välj vilket innehåll som ska visas
+            $activeContent = null;
+            if ($requested_sprak_id) {
+                foreach ($translations as $t) {
+                    if ($t['sprak_id'] == $requested_sprak_id) { $activeContent = $t; break; }
+                }
+            } elseif ($requested_sprak_code) {
+                foreach ($translations as $t) {
+                    if ($t['sprak_kod'] === $requested_sprak_code) { $activeContent = $t; break; }
+                }
+            }
+
+            if (!$activeContent && !empty($translations)) {
+                $activeContent = $translations[0];
+            }
+
+            $page['sprak_id'] = $activeContent['sprak_id'] ?? null;
+            $page['sprak_kod'] = $activeContent['sprak_kod'] ?? '';
+            $page['sprak_namn'] = $activeContent['sprak_namn'] ?? '';
+            $page['title'] = $activeContent['title'] ?? '';
+            $page['content'] = $activeContent['content'] ?? '';
+
+            // Hämta bilder
+            $imgStmt = $conn->prepare("SELECT * FROM images WHERE page_id = ? ORDER BY id ASC");
             $imgStmt->bind_param("i", $id);
             $imgStmt->execute();
             $page['images'] = $imgStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $imgStmt->close();
 
             echo json_encode($page, JSON_UNESCAPED_UNICODE);
-        } else {
-            $sql = "SELECT p.*, COUNT(i.id) AS image_count FROM pages p LEFT JOIN images i ON p.id = i.page_id WHERE 1=1";
-            $params = [];
-            $types = "";
-
-            if (!empty($_GET['status'])) {
-                $sql .= " AND p.status = ?";
-                $params[] = $_GET['status'];
-                $types .= "s";
-            }
-
-            if (!empty($_GET['search'])) {
-                $sql .= " AND (p.title LIKE ? OR p.content LIKE ?)";
-                $searchQuery = '%' . $_GET['search'] . '%';
-                $params[] = $searchQuery;
-                $params[] = $searchQuery;
-                $types .= "ss";
-            }
-
-            $sql .= " GROUP BY p.id ORDER BY p.created_at DESC";
-
-            if (!empty($params)) {
-                $stmt = $conn->prepare($sql);
-                $stmt->bind_param($types, ...$params);
-                $stmt->execute();
-                $result = $stmt->get_result();
-            } else {
-                $result = $conn->query($sql);
-            }
-
-            $pages = $result->fetch_all(MYSQLI_ASSOC);
-
-            // Hämta bilder för varje sida i listan
-            foreach ($pages as &$p) {
-                $imgStmt = $conn->prepare("SELECT * FROM images WHERE page_id = ?");
-                $imgStmt->bind_param("i", $p['id']);
-                $imgStmt->execute();
-                $p['images'] = $imgStmt->get_result()->fetch_all(MYSQLI_ASSOC);
-            }
-
-            echo json_encode($pages, JSON_UNESCAPED_UNICODE);
+            exit;
         }
+
+        // Hämta lista över sidor (varje sida visas 1 gång)
+        $sprak_id = isset($_GET['sprak_id']) && $_GET['sprak_id'] !== '' ? intval($_GET['sprak_id']) : null;
+
+        $sql = "SELECT p.id, p.status, p.created_at, p.updated_at, 
+                       pc.sprak_id, pc.title, pc.content, s.sprak as sprak_kod, s.namn as sprak_namn
+                FROM pages p
+                INNER JOIN page_content pc ON p.id = pc.page_id";
+
+        if ($sprak_id) {
+            $sql .= " AND pc.sprak_id = " . $sprak_id;
+        } else {
+            // Om inget språk är valt som filter, välj det lägsta sprak_id så sidan inte dubbleras
+            $sql .= " AND pc.sprak_id = (SELECT MIN(sprak_id) FROM page_content WHERE page_id = p.id)";
+        }
+
+        $sql .= " INNER JOIN sprak s ON pc.sprak_id = s.id WHERE 1=1";
+
+        $params = [];
+        $types = "";
+
+        if (!empty($_GET['status'])) { $sql .= " AND p.status = ?"; $params[] = $_GET['status']; $types .= "s"; }
+        if (!empty($_GET['year'])) { $sql .= " AND YEAR(p.created_at) = ?"; $params[] = intval($_GET['year']); $types .= "i"; }
+        if (!empty($_GET['month'])) { $sql .= " AND MONTH(p.created_at) = ?"; $params[] = intval($_GET['month']); $types .= "i"; }
+        if (!empty($_GET['week'])) { $sql .= " AND WEEK(p.created_at, 1) = ?"; $params[] = intval($_GET['week']); $types .= "i"; }
+        if (!empty($_GET['search'])) {
+            $sql .= " AND (pc.title LIKE ? OR pc.content LIKE ?)";
+            $searchStr = '%' . $_GET['search'] . '%';
+            $params[] = $searchStr; $params[] = $searchStr;
+            $types .= "ss";
+        }
+
+        $sql .= " ORDER BY p.created_at DESC";
+
+        $stmt = $conn->prepare($sql);
+        if (!empty($params)) { $stmt->bind_param($types, ...$params); }
+        $stmt->execute();
+        $pages = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+
+        if (!empty($pages)) {
+            $pageIds = array_column($pages, 'id');
+            $placeholders = implode(',', array_fill(0, count($pageIds), '?'));
+            $idTypes = str_repeat('i', count($pageIds));
+
+            // Hämta alla språköversättningar som finns tillgängliga per sida
+            $transStmt = $conn->prepare("SELECT pc.page_id, pc.sprak_id, s.sprak, s.namn FROM page_content pc INNER JOIN sprak s ON pc.sprak_id = s.id WHERE pc.page_id IN ($placeholders)");
+            $transStmt->bind_param($idTypes, ...$pageIds);
+            $transStmt->execute();
+            $allTrans = $transStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $transStmt->close();
+
+            $transMap = [];
+            foreach ($allTrans as $t) { $transMap[$t['page_id']][] = $t; }
+
+            // Hämta bilderna
+            $imgStmt = $conn->prepare("SELECT * FROM images WHERE page_id IN ($placeholders) ORDER BY id ASC");
+            $imgStmt->bind_param($idTypes, ...$pageIds);
+            $imgStmt->execute();
+            $allImages = $imgStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $imgStmt->close();
+
+            $imgMap = [];
+            foreach ($allImages as $img) { $imgMap[$img['page_id']][] = $img; }
+
+            foreach ($pages as &$p) {
+                $p['available_languages'] = $transMap[$p['id']] ?? [];
+                $p['images'] = $imgMap[$p['id']] ?? [];
+            }
+        }
+
+        echo json_encode($pages, JSON_UNESCAPED_UNICODE);
         break;
 
-    // SKAPA SIDA ELLER LADDA UPP BILD
     case 'POST':
         if ($action === 'upload_image') {
             $page_id = $_POST['page_id'] ?? null;
-
             if (!$page_id || !isset($_FILES['image_file'])) {
-                http_response_code(400);
-                echo json_encode(["message" => "Saknar page_id eller bildfil"]);
-                exit;
+                http_response_code(400); echo json_encode(["message" => "Saknar page_id eller bildfil"]); exit;
             }
 
             $file = $_FILES['image_file'];
@@ -114,22 +191,12 @@ switch ($method) {
             $mime_type = mime_content_type($file['tmp_name']);
             $file_size = $file['size'];
 
-            if (!in_array($mime_type, $allowed_mimes)) {
-                http_response_code(400);
-                echo json_encode(["message" => "Otillåtet filformat. Endast JPG, PNG, GIF och WEBP tillåts."]);
-                exit;
-            }
-
-            if ($file_size > 5 * 1024 * 1024) {
-                http_response_code(400);
-                echo json_encode(["message" => "Filen överstiger maximal tillåten storlek på 5MB."]);
-                exit;
+            if (!in_array($mime_type, $allowed_mimes) || $file_size > 5 * 1024 * 1024) {
+                http_response_code(400); echo json_encode(["message" => "Ogiltigt filformat eller för stor fil (max 5MB)."]); exit;
             }
 
             $uploadDir = 'uploads/';
-            if (!is_dir($uploadDir)) {
-                mkdir($uploadDir, 0755, true);
-            }
+            if (!is_dir($uploadDir)) { mkdir($uploadDir, 0755, true); }
 
             $fileName = uniqid() . '_' . preg_replace("/[^a-zA-Z0-9\._-]/", "", basename($file['name']));
             $targetPath = $uploadDir . $fileName;
@@ -139,106 +206,97 @@ switch ($method) {
                 $stmt = $conn->prepare("INSERT INTO images (page_id, img_path, mime_type, file_size, created_at) VALUES (?, ?, ?, ?, ?)");
                 $stmt->bind_param("issis", $page_id, $targetPath, $mime_type, $file_size, $now);
                 $stmt->execute();
+                $newId = $conn->insert_id;
+                $stmt->close();
 
                 http_response_code(201);
-                echo json_encode(["message" => "Bild uppladdad!", "id" => $conn->insert_id, "img_path" => $targetPath]);
+                echo json_encode(["message" => "Bild uppladdad!", "id" => $newId, "img_path" => $targetPath]);
             } else {
-                http_response_code(500);
-                echo json_encode(["message" => "Kunde inte spara filen på servern."]);
+                http_response_code(500); echo json_encode(["message" => "Kunde inte spara filen på servern."]);
             }
         } else {
             $data = json_decode(file_get_contents("php://input"), true);
 
-            if (empty($data['title']) || empty($data['content'])) {
-                http_response_code(400);
-                echo json_encode(["message" => "Titel och innehåll krävs"]);
-                exit;
+            if (empty($data['title']) || empty($data['content']) || empty($data['sprak_id'])) {
+                http_response_code(400); echo json_encode(["message" => "Titel, innehåll och språk krävs"]); exit;
             }
 
-            $title = $data['title'];
-            $content = $data['content'];
-            $status = in_array($data['status'] ?? '', ['draft', 'published']) ? $data['status'] : 'draft';
-            $now = date('Y-m-d H:i:s');
+            $conn->begin_transaction();
+            try {
+                $now = date('Y-m-d H:i:s');
+                $status = in_array($data['status'] ?? '', ['draft', 'published']) ? $data['status'] : 'draft';
 
-            $stmt = $conn->prepare("INSERT INTO pages (title, content, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)");
-            $stmt->bind_param("sssss", $title, $content, $status, $now, $now);
-            
-            if ($stmt->execute()) {
+                $stmt1 = $conn->prepare("INSERT INTO pages (status, created_at, updated_at) VALUES (?, ?, ?)");
+                $stmt1->bind_param("sss", $status, $now, $now);
+                $stmt1->execute();
+                $page_id = $conn->insert_id;
+                $stmt1->close();
+
+                $stmt2 = $conn->prepare("INSERT INTO page_content (page_id, sprak_id, title, content) VALUES (?, ?, ?, ?)");
+                $stmt2->bind_param("iiss", $page_id, $data['sprak_id'], $data['title'], $data['content']);
+                $stmt2->execute();
+                $stmt2->close();
+
+                $conn->commit();
                 http_response_code(201);
-                echo json_encode(["message" => "Sida skapad!", "id" => $conn->insert_id]);
-            } else {
-                http_response_code(500);
-                echo json_encode(["message" => "Databasfel vid skapande av sida"]);
+                echo json_encode(["message" => "Sida skapad!", "id" => $page_id]);
+            } catch (Exception $e) {
+                $conn->rollback();
+                http_response_code(500); echo json_encode(["message" => "Kunde inte skapa sida"]);
             }
         }
         break;
 
-    // REDIGERA SIDA (PUT)
     case 'PUT':
-        if (!$id) {
-            http_response_code(400);
-            echo json_encode(["message" => "ID krävs för uppdatering"]);
-            exit;
-        }
+        if (!$id) { http_response_code(400); echo json_encode(["message" => "ID krävs för uppdatering"]); exit; }
 
         $data = json_decode(file_get_contents("php://input"), true);
-        $now = date('Y-m-d H:i:s');
+        $conn->begin_transaction();
 
-        $fields = [];
-        $params = [];
-        $types = "";
+        try {
+            if (isset($data['status'])) {
+                $now = date('Y-m-d H:i:s');
+                $stmt = $conn->prepare("UPDATE pages SET status = ?, updated_at = ? WHERE id = ?");
+                $stmt->bind_param("ssi", $data['status'], $now, $id);
+                $stmt->execute();
+                $stmt->close();
+            }
 
-        if (isset($data['title'])) { $fields[] = "title = ?"; $params[] = $data['title']; $types .= "s"; }
-        if (isset($data['content'])) { $fields[] = "content = ?"; $params[] = $data['content']; $types .= "s"; }
-        if (isset($data['status'])) { $fields[] = "status = ?"; $params[] = $data['status']; $types .= "s"; }
+            if (isset($data['title']) && isset($data['content']) && !empty($data['sprak_id'])) {
+                $stmt2 = $conn->prepare("INSERT INTO page_content (page_id, sprak_id, title, content) VALUES (?, ?, ?, ?)
+                                         ON DUPLICATE KEY UPDATE title = VALUES(title), content = VALUES(content)");
+                $stmt2->bind_param("iiss", $id, $data['sprak_id'], $data['title'], $data['content']);
+                $stmt2->execute();
+                $stmt2->close();
+            }
 
-        if (empty($fields)) {
-            http_response_code(400);
-            echo json_encode(["message" => "Inga fält att uppdatera skickades"]);
-            exit;
+            $conn->commit();
+            echo json_encode(["message" => "Sidan har uppdaterats!"]);
+        } catch (Exception $e) {
+            $conn->rollback();
+            http_response_code(500); echo json_encode(["message" => "Kunde inte uppdatera sidan"]);
         }
-
-        $fields[] = "updated_at = ?";
-        $params[] = $now;
-        $types .= "s";
-
-        $sql = "UPDATE pages SET " . implode(", ", $fields) . " WHERE id = ?";
-        $params[] = $id;
-        $types .= "i";
-
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param($types, ...$params);
-        $stmt->execute();
-
-        echo json_encode(["message" => "Sidan har uppdaterats!"]);
         break;
 
-    // TA BORT SIDA (DELETE)
     case 'DELETE':
-        if (!$id) {
-            http_response_code(400);
-            echo json_encode(["message" => "ID krävs för radering"]);
-            exit;
-        }
+        if (!$id) { http_response_code(400); echo json_encode(["message" => "ID krävs för radering"]); exit; }
 
-        // Ta bort bildfiler från disk
         $imgStmt = $conn->prepare("SELECT img_path FROM images WHERE page_id = ?");
         $imgStmt->bind_param("i", $id);
         $imgStmt->execute();
         $images = $imgStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $imgStmt->close();
 
         foreach ($images as $img) {
-            if (file_exists($img['img_path'])) {
-                unlink($img['img_path']);
-            }
+            if (file_exists($img['img_path'])) { unlink($img['img_path']); }
         }
 
-        // Ta bort raden ur pages
         $stmt = $conn->prepare("DELETE FROM pages WHERE id = ?");
         $stmt->bind_param("i", $id);
         $stmt->execute();
+        $stmt->close();
 
-        echo json_encode(["message" => "Sidan och tillhörande bildfiler har raderats!"]);
+        echo json_encode(["message" => "Sidan och tillhörande material raderades!"]);
         break;
 
     default:
