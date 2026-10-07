@@ -1,222 +1,174 @@
-// LANSERING: Ändra denna till din subdomän-URL när du laddar upp på nätet, t.ex. 'https://api.mindoman.se/api.php'
 const API_URL = 'api.php';
 
-document.addEventListener('DOMContentLoaded', async () => {
-    await loadLanguages();
-    fetchPages();
-    loadApiDocs();
-});
+class CmsApi {
+    async request({ method = 'GET', params = {}, body } = {}) {
+        const query = new URLSearchParams(
+            Object.entries(params).filter(([_, v]) => v !== undefined && v !== null && v !== '')
+        );
+        const url = query.toString() ? `${API_URL}?${query}` : API_URL;
+        const options = { method };
 
-// Hämtar språkalternativ från sprak-tabellen
-async function loadLanguages() {
-    try {
-        const response = await fetch(`${API_URL}?action=languages`);
-        const languages = await response.json();
-        
-        ['filterSprak', 'sprak', 'editSprak'].forEach(selectId => {
-            const dropdown = document.getElementById(selectId);
-            if (dropdown) {
-                dropdown.querySelectorAll('option:not([value=""])').forEach(opt => opt.remove());
-                languages.forEach(lang => {
-                    const option = document.createElement('option');
-                    option.value = lang.id;
-                    option.textContent = lang.namn;
-                    dropdown.appendChild(option);
-                });
-            }
-        });
-    } catch (err) {
-        console.error("Kunde inte hämta språk:", err);
+        if (body instanceof FormData) {
+            options.body = body;
+        } else if (body) {
+            options.headers = { 'Content-Type': 'application/json' };
+            options.body = JSON.stringify(body);
+        }
+
+        const res = await fetch(url, options);
+        return { ok: res.ok, data: await res.json().catch(() => ({})) };
     }
 }
 
-async function fetchPages() {
-    const status = document.getElementById('filterStatus').value;
-    const sprak = document.getElementById('filterSprak').value;
-    const year = document.getElementById('filterYear').value;
-    const month = document.getElementById('filterMonth').value;
-    const week = document.getElementById('filterWeek').value;
-    const search = document.getElementById('searchInput').value;
+class CmsApp {
+    constructor() {
+        this.api = new CmsApi();
+        this.pages = [];
+    }
 
-    let url = `${API_URL}?status=${encodeURIComponent(status)}&sprak_id=${encodeURIComponent(sprak)}&year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}&week=${encodeURIComponent(week)}&search=${encodeURIComponent(search)}`;
+    async init() {
+        await this.loadLanguages();
+        this.fetchPages();
+        this.loadDocs();
 
-    try {
-        const response = await fetch(url);
-        const pages = await response.json();
+        document.getElementById('createPageForm').onsubmit = (e) => this.savePage(e);
+        document.getElementById('editPageForm').onsubmit = (e) => this.savePage(e, true);
+    }
+
+    async loadLanguages() {
+        const { data } = await this.api.request({ params: { action: 'languages' } });
+        if (!Array.isArray(data)) return;
+
+        ['filterSprak', 'sprak', 'editSprak'].forEach(id => {
+            const select = document.getElementById(id);
+            if (!select) return;
+            select.querySelectorAll('option:not([value=""])').forEach(o => o.remove());
+            data.forEach(l => select.add(new Option(l.namn, l.id)));
+        });
+    }
+
+    async fetchPages() {
+        const getVal = id => document.getElementById(id)?.value || '';
+        const params = {
+            status: getVal('filterStatus'),
+            sprak_id: getVal('filterSprak'),
+            year: getVal('filterYear'),
+            month: getVal('filterMonth'),
+            week: getVal('filterWeek'),
+            search: getVal('searchInput')
+        };
+
+        const { data } = await this.api.request({ params });
+        this.pages = Array.isArray(data) ? data : [];
 
         const listDiv = document.getElementById('pagesList');
-        listDiv.innerHTML = '';
+        if (!this.pages.length) return listDiv.innerHTML = '<p>Inga sidor hittades.</p>';
 
-        if (!Array.isArray(pages) || pages.length === 0) {
-            listDiv.innerHTML = '<p>Inga sidor hittades.</p>';
-            return;
-        }
-
-        pages.forEach(page => {
-            let imagesHtml = page.images && page.images.length > 0
-                ? page.images.map(img => `<div class="image-card"><img src="${img.img_path}"><span>${(img.file_size / 1024).toFixed(1)} KB</span></div>`).join('')
-                : '<p style="font-size: 12px; color: #888;">Inga bilder.</p>';
-
-            let langsHtml = page.available_languages && page.available_languages.length > 0
-                ? page.available_languages.map(l => `<span style="background:#e0e0e0; padding:2px 6px; border-radius:3px; font-size:11px; margin-right:4px;">${l.namn}</span>`).join('')
-                : '';
-
-            listDiv.innerHTML += `
-                <div class="page-item">
-                    <div class="page-header">
-                        <h3>${escapeHtml(page.title)} <small style="font-size: 12px; color: #777;">(ID: ${page.id})</small></h3>
-                        <span class="badge ${page.status}">${page.status === 'published' ? 'Publicerad' : 'Utkast'}</span>
-                    </div>
-                    <div style="margin-bottom:8px;"><strong>Språk i databasen:</strong> ${langsHtml}</div>
-                    <p>${escapeHtml(page.content)}</p>
-                    <strong>Bilder:</strong>
-                    <div class="image-gallery">${imagesHtml}</div>
-                    
-                    <div style="margin: 10px 0; padding: 10px; background: #f9f9f9; border-radius: 4px;">
-                        <label style="font-size: 12px;">Ny bild:</label>
-                        <input type="file" id="file-${page.id}" accept="image/*" style="font-size: 12px;">
-                        <button onclick="uploadImage(${page.id})" style="padding: 4px 8px; font-size: 12px;">Ladda upp</button>
-                    </div>
-
-                    <div style="display: flex; gap: 8px; margin-top: 10px;">
-                        <button class="secondary" onclick='openEditModal(${JSON.stringify(page)})'>Redigera / Lägg till översättning</button>
-                        <button class="danger" onclick="deletePage(${page.id})">Ta bort sida</button>
-                    </div>
+        listDiv.innerHTML = this.pages.map(p => `
+            <div class="page-item">
+                <div class="page-header">
+                    <h3>${this.esc(p.title)} <small style="font-size: 12px; color: #777;">(ID: ${p.id})</small></h3>
+                    <span class="badge ${p.status}">${p.status === 'published' ? 'Publicerad' : 'Utkast'}</span>
                 </div>
-            `;
-        });
-    } catch (err) {
-        console.error("Fel vid hämtning av sidor:", err);
+                <div style="margin-bottom:8px;">
+                    <strong>Språk i databasen:</strong> 
+                    ${p.available_languages?.map(l => `<span style="background:#e0e0e0; padding:2px 6px; border-radius:3px; font-size:11px; margin-right:4px;">${this.esc(l.namn)}</span>`).join('') || ''}
+                </div>
+                <p>${this.esc(p.content)}</p>
+                <strong>Bilder:</strong>
+                <div class="image-gallery">
+                    ${p.images?.map(i => `<div class="image-card"><img src="${i.img_path}"><span>${(i.file_size / 1024).toFixed(1)} KB</span></div>`).join('') || '<p style="font-size: 12px; color: #888;">Inga bilder.</p>'}
+                </div>
+                <div style="margin: 10px 0; padding: 10px; background: #f9f9f9; border-radius: 4px;">
+                    <label style="font-size: 12px;">Ny bild:</label>
+                    <input type="file" id="file-${p.id}" accept="image/*" style="font-size: 12px;">
+                    <button onclick="app.uploadImg(${p.id})" style="padding: 4px 8px; font-size: 12px;">Ladda upp</button>
+                </div>
+                <div style="display: flex; gap: 8px; margin-top: 10px;">
+                    <button class="secondary" onclick="app.editModal(${p.id})">Redigera / Lägg till översättning</button>
+                    <button class="danger" onclick="app.deletePage(${p.id})">Ta bort sida</button>
+                </div>
+            </div>
+        `).join('');
     }
-}
 
-document.getElementById('createPageForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
+    async savePage(e, isEdit = false) {
+        e.preventDefault();
+        const prefix = isEdit ? 'edit' : '';
+        const id = isEdit ? document.getElementById('editId').value : null;
 
-    const pageData = {
-        title: document.getElementById('title').value,
-        content: document.getElementById('content').value,
-        status: document.getElementById('status').value,
-        sprak_id: document.getElementById('sprak').value
-    };
+        const body = {
+            title: document.getElementById(prefix ? 'editTitle' : 'title').value.trim(),
+            content: document.getElementById(prefix ? 'editContent' : 'content').value.trim(),
+            status: document.getElementById(prefix ? 'editStatus' : 'status').value,
+            sprak_id: document.getElementById(prefix ? 'editSprak' : 'sprak').value
+        };
 
-    try {
-        const response = await fetch(API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(pageData)
+        const { ok, data } = await this.api.request({
+            method: isEdit ? 'PUT' : 'POST',
+            params: isEdit ? { id } : {},
+            body
         });
 
-        const result = await response.json();
-        alert(result.message);
-
-        if (response.ok) {
-            document.getElementById('createPageForm').reset();
-            fetchPages();
+        alert(data.message);
+        if (ok) {
+            if (isEdit) this.toggleModal('editModal', false);
+            else e.target.reset();
+            this.fetchPages();
         }
-    } catch (err) {
-        console.error("Kunde inte skapa sida:", err);
     }
-});
 
-function openEditModal(page) {
-    document.getElementById('editId').value = page.id;
-    document.getElementById('editTitle').value = page.title;
-    document.getElementById('editContent').value = page.content;
-    document.getElementById('editStatus').value = page.status;
-    document.getElementById('editSprak').value = page.sprak_id;
-    document.getElementById('editModal').classList.add('active');
-}
-
-function closeEditModal() {
-    document.getElementById('editModal').classList.remove('active');
-}
-
-document.getElementById('editPageForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const id = document.getElementById('editId').value;
-
-    const pageData = {
-        title: document.getElementById('editTitle').value,
-        content: document.getElementById('editContent').value,
-        status: document.getElementById('editStatus').value,
-        sprak_id: document.getElementById('editSprak').value
-    };
-
-    try {
-        const response = await fetch(`${API_URL}?id=${id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(pageData)
-        });
-
-        const result = await response.json();
-        alert(result.message);
-
-        if (response.ok) {
-            closeEditModal();
-            fetchPages();
-        }
-    } catch (err) {
-        console.error("Kunde inte uppdatera sida:", err);
+    editModal(id) {
+        const page = this.pages.find(p => p.id === id);
+        if (!page) return;
+        document.getElementById('editId').value = page.id;
+        document.getElementById('editTitle').value = page.title || '';
+        document.getElementById('editContent').value = page.content || '';
+        document.getElementById('editStatus').value = page.status || 'draft';
+        document.getElementById('editSprak').value = page.sprak_id || '';
+        this.toggleModal('editModal', true);
     }
-});
 
-async function deletePage(id) {
-    if (!confirm("Är du säker på att du vill ta bort sidan och alla dess språk/bilder?")) return;
+    toggleModal(id, show) {
+        const modal = document.getElementById(id);
+        if (modal) modal.classList.toggle('active', show ?? !modal.classList.contains('active'));
+    }
 
-    try {
-        const response = await fetch(`${API_URL}?id=${id}`, { method: 'DELETE' });
-        const result = await response.json();
-        alert(result.message);
-        fetchPages();
-    } catch (err) {
-        console.error("Kunde inte radera sida:", err);
+    async deletePage(id) {
+        if (!confirm("Är du säker på att du vill ta bort sidan och alla dess språk/bilder?")) return;
+        const { data } = await this.api.request({ method: 'DELETE', params: { id } });
+        alert(data.message);
+        this.fetchPages();
+    }
+
+    async uploadImg(pageId) {
+        const fileInput = document.getElementById(`file-${pageId}`);
+        if (!fileInput?.files[0]) return alert("Välj en bildfil först.");
+
+        const body = new FormData();
+        body.append('page_id', pageId);
+        body.append('image_file', fileInput.files[0]);
+
+        const { ok, data } = await this.api.request({ method: 'POST', params: { action: 'upload_image' }, body });
+        alert(data.message);
+        if (ok) this.fetchPages();
+    }
+
+    async loadDocs() {
+        const { data } = await this.api.request({ params: { action: 'help' } });
+        const docsEl = document.getElementById('docsContent');
+        if (docsEl) docsEl.innerText = JSON.stringify(data, null, 2);
+    }
+
+    esc(str) {
+        return (str || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]));
     }
 }
 
-async function uploadImage(pageId) {
-    const fileInput = document.getElementById(`file-${pageId}`);
-    if (!fileInput.files || fileInput.files.length === 0) {
-        alert("Välj en bildfil först.");
-        return;
-    }
+let app;
+document.addEventListener('DOMContentLoaded', () => { app = new CmsApp(); app.init(); });
 
-    const formData = new FormData();
-    formData.append('page_id', pageId);
-    formData.append('image_file', fileInput.files[0]);
-
-    try {
-        const response = await fetch(`${API_URL}?action=upload_image`, {
-            method: 'POST',
-            body: formData
-        });
-
-        const result = await response.json();
-        alert(result.message);
-
-        if (response.ok) {
-            fetchPages();
-        }
-    } catch (err) {
-        console.error("Fel vid bilduppladdning:", err);
-    }
-}
-
-async function loadApiDocs() {
-    try {
-        const response = await fetch(`${API_URL}?action=help`);
-        const docs = await response.json();
-        document.getElementById('docsContent').innerText = JSON.stringify(docs, null, 2);
-    } catch (err) {
-        console.error("Kunde inte hämta API-docs:", err);
-    }
-}
-
-function toggleDocs() {
-    document.getElementById('docsModal').classList.toggle('active');
-}
-
-function escapeHtml(str) {
-    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
+// Bakåtkompatibilitet för index.html
+window.fetchPages = () => app.fetchPages();
+window.toggleDocs = () => app.toggleModal('docsModal');
+window.closeEditModal = () => app.toggleModal('editModal', false);
