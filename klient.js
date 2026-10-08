@@ -73,10 +73,12 @@ async function openPageModal(pageId, sprakId = null) {
         }
 
         // Bildgalleri
+        // Bildgalleri
         let imagesHtml = '';
         if (page.images && page.images.length > 0) {
             page.images.forEach(img => {
-                imagesHtml += `<img src="${img.img_path}" alt="Bild">`;
+                const srcPath = img.img_path.replace(/^\.\.\//, '');
+                imagesHtml += `<img src="${srcPath}" alt="Bild">`;
             });
         }
 

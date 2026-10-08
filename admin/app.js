@@ -55,7 +55,9 @@ class CmsApp {
             year: getVal('filterYear'),
             month: getVal('filterMonth'),
             week: getVal('filterWeek'),
-            search: getVal('searchInput')
+            search: getVal('searchInput'),
+            min_id: getVal('filterMinId'),
+            max_id: getVal('filterMaxId')
         };
 
         const { data } = await this.api.request({ params });

@@ -69,6 +69,19 @@ switch ($method) {
         if ($sprak_id) { $params[] = $sprak_id; $types .= "i"; }
         if (!empty($_GET['status'])) { $conditions[] = "p.status = ?"; $params[] = $_GET['status']; $types .= "s"; }
         if (!empty($_GET['month'])) { $conditions[] = "MONTH(p.created_at) = ?"; $params[] = intval($_GET['month']); $types .= "i"; }
+
+        // Filter för ID-intervall
+        if (isset($_GET['min_id']) && $_GET['min_id'] !== '') {
+            $conditions[] = "p.id >= ?";
+            $params[] = intval($_GET['min_id']);
+            $types .= "i";
+        }
+        if (isset($_GET['max_id']) && $_GET['max_id'] !== '') {
+            $conditions[] = "p.id <= ?";
+            $params[] = intval($_GET['max_id']);
+            $types .= "i";
+        }
+
         if (!empty($_GET['search'])) {
             $conditions[] = "(pc.title LIKE ? OR pc.content LIKE ?)";
             $s = '%' . $_GET['search'] . '%';
@@ -105,7 +118,15 @@ switch ($method) {
                 http_response_code(400); echo json_encode(["message" => "Saknar page_id eller bildfil"]); exit;
             }
             $file = $_FILES['image_file'];
-            $mime = mime_content_type($file['tmp_name']);
+
+            // Säker kontroll av MIME-typ om fileinfo-modulen saknas
+            if (function_exists('mime_content_type')) {
+                $mime = mime_content_type($file['tmp_name']);
+            } else {
+                $imgSize = @getimagesize($file['tmp_name']);
+                $mime = $imgSize ? $imgSize['mime'] : ($file['type'] ?? '');
+            }
+
             if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif']) || $file['size'] > 5 * 1024 * 1024) {
                 http_response_code(400); echo json_encode(["message" => "Ogiltigt filformat eller för stor fil."]); exit;
             }
