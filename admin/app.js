@@ -1,4 +1,4 @@
-const API_URL = 'api.php';
+const API_URL = 'api_admin.php';
 
 class CmsApi {
     async request({ method = 'GET', params = {}, body } = {}) {

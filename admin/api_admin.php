@@ -4,7 +4,7 @@ header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE");
 header("Access-Control-Allow-Headers: Content-Type");
 
-require_once __DIR__ . '/db.php';
+require_once '../db.php';
 
 class ApiDatabase {
     private $connection;
@@ -109,7 +109,7 @@ switch ($method) {
             if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif']) || $file['size'] > 5 * 1024 * 1024) {
                 http_response_code(400); echo json_encode(["message" => "Ogiltigt filformat eller för stor fil."]); exit;
             }
-            $uploadDir = 'uploads/';
+            $uploadDir = '../uploads/';
             if (!is_dir($uploadDir)) { mkdir($uploadDir, 0755, true); }
             $targetPath = $uploadDir . uniqid() . '_' . preg_replace("/[^a-zA-Z0-9\._-]/", "", basename($file['name']));
 
