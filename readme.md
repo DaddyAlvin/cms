@@ -5,18 +5,15 @@ webbplats med JavaScript i webbläsaren. API:et returnerar JSON.
 
 ## Ange API-adressen
 
-När API:et har publicerats byter du ut `<DIN-DOMÄN>` mot domänen där CMS:et
-ligger:
+API:et finns på `https://cmsapi.ntigskovde.se/alvin/`. Använd hela adressen
+till API-filen:
 
 ```js
-const API_URL = 'https://<DIN-DOMÄN>/api.php';
+const API_URL = 'https://cmsapi.ntigskovde.se/alvin/api_public.php';
 ```
 
-Exempel: `https://cms.example.se/api.php`. Om API:et ligger i en undermapp
-anger du hela sökvägen, till exempel
-`https://example.se/cms/api.php`.
-
-Lokalt används den relativa adressen:
+Använd samma `API_URL` för alla anrop till sidor, språk och bilder. Om du
+kör webbplatsen lokalt kan du tillfälligt använda den relativa adressen:
 
 ```js
 const API_URL = 'api.php';
@@ -34,7 +31,7 @@ Hämta publicerade sidor och skapa ett element för var och en:
 
 ```html
 <script>
-const API_URL = 'https://<DIN-DOMÄN>/api.php';
+const API_URL = 'https://cmsapi.ntigskovde.se/alvin/api.php';
 const pagesContainer = document.getElementById('cms-pages');
 
 async function loadPages() {

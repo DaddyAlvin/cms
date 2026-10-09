@@ -1,5 +1,4 @@
-// LANSERING: Ändra till din subdomän-URL vid lansering (t.ex. 'https://api.mindoman.se/api.php')
-const API_URL = 'api_public.php';
+const API_URL = 'https://cmsapi.ntigskovde.se/alvin/api_public.php';
 
 document.addEventListener('DOMContentLoaded', fetchPublishedPages);
 
