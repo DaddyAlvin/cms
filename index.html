@@ -11,7 +11,7 @@
         h1 { margin-bottom: 20px; font-size: 24px; color: #111; }
         
         /* Listvy för alla sidor på rad */
-        .page-list { display: flex; flex-direction: column; gap: 12px; }
+        .page-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
         .page-card { 
             background: white; 
             padding: 18px 24px; 
@@ -55,6 +55,10 @@
         
         .gallery { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 25px; }
         .gallery img { max-width: 100%; height: auto; max-height: 220px; border-radius: 6px; object-fit: cover; }
+
+        @media (max-width: 600px) {
+            .page-list { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
